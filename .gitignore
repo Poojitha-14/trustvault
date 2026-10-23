@@ -4,3 +4,5 @@ __pycache__/
 *.db
 storage/
 .pytest_cache/
+c.txt
+cookies.txt
