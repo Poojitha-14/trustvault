@@ -1,11 +1,6 @@
 import io
 import os
-import tempfile
 
-# Must be set BEFORE importing app/db, so tests never touch the real data
-_tmp = tempfile.mkdtemp()
-os.environ["TRUSTVAULT_DB"] = os.path.join(_tmp, "test.db")
-os.environ["TRUSTVAULT_STORAGE"] = os.path.join(_tmp, "files")
 
 import pytest
 from werkzeug.security import generate_password_hash

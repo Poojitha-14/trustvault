@@ -294,5 +294,76 @@ def delete_document(doc_id):
         db.close()
 
 
+from audit import verify_chain
+
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("RENDER") is not None
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/")
+def index():
+    return jsonify(app="TrustVault API", health="/health", login="POST /login")
+
+
+@app.get("/search")
+@login_required
+def search_documents():
+    db = get_db()
+    try:
+        q = request.args.get("q", "")
+        owner = request.args.get("owner", "")
+        category = request.args.get("category", "")
+        date_from = request.args.get("from", "")
+        date_to = request.args.get("to", "")
+        sql = (
+            "SELECT d.id, d.owner_id, d.name, d.category, d.size_bytes, d.deleted_at, "
+            "d.created_at, u.username AS owner FROM documents d "
+            "JOIN users u ON u.id = d.owner_id "
+            "WHERE d.name LIKE ? AND u.username LIKE ? AND IFNULL(d.category, '') LIKE ?"
+        )
+        params = ["%" + q + "%", "%" + owner + "%", "%" + category + "%"]
+        if date_from:
+            sql += " AND date(d.created_at) >= date(?)"
+            params.append(date_from)
+        if date_to:
+            sql += " AND date(d.created_at) <= date(?)"
+            params.append(date_to)
+        rows = db.execute(sql + " ORDER BY d.id DESC", params).fetchall()
+        return jsonify([
+            {"id": r["id"], "name": r["name"], "category": r["category"],
+             "owner": r["owner"], "size_bytes": r["size_bytes"], "created_at": r["created_at"]}
+            for r in rows if authorize(g.user, r, "view_meta", db)
+        ])
+    finally:
+        db.close()
+
+
+@app.get("/admin/audit")
+@login_required
+def admin_audit():
+    db = get_db()
+    try:
+        if g.user["role"] != "admin":
+            log_event(db, g.user["id"], "admin_audit", None, "denied", "not admin")
+            return jsonify(error="not found"), 404
+        action = request.args.get("action", "")
+        outcome = request.args.get("outcome", "")
+        rows = db.execute(
+            "SELECT id, at, actor_id, action, document_id, outcome, detail FROM audit_log "
+            "WHERE action LIKE ? AND outcome LIKE ? ORDER BY id DESC LIMIT 200",
+            ("%" + action + "%", "%" + outcome + "%"),
+        ).fetchall()
+        ok, bad = verify_chain(db)
+        return jsonify(chain_ok=ok, first_bad_row=bad, events=[dict(r) for r in rows])
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     app.run(port=5000)
