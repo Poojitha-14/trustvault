@@ -1,8 +1,9 @@
+import os
 import sqlite3
 from pathlib import Path
 
 BASE = Path(__file__).parent
-DB_PATH = BASE / "trustvault.db"
+DB_PATH = Path(os.environ.get("TRUSTVAULT_DB", BASE / "trustvault.db"))
 
 
 def get_db():
