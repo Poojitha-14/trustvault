@@ -190,5 +190,109 @@ def list_documents():
         db.close()
 
 
+@app.post("/documents/<int:doc_id>/grants")
+@login_required
+def grant_access(doc_id):
+    db = get_db()
+    try:
+        doc = db.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if not authorize(g.user, doc, "share", db):
+            log_event(db, g.user["id"], "grant", doc_id, "denied", "not authorised or not found")
+            return jsonify(error="not found"), 404
+
+        data = request.get_json(silent=True) or {}
+        username = str(data.get("username", ""))
+        permission = str(data.get("permission", ""))
+        if permission not in ("read", "edit"):
+            return jsonify(error="permission must be 'read' or 'edit'"), 400
+
+        target = db.execute(
+            "SELECT id, role FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if target is None:
+            return jsonify(error="user not found"), 404
+        if target["id"] == doc["owner_id"]:
+            return jsonify(error="owner already has full access"), 400
+        if target["role"] == "admin":
+            return jsonify(error="cannot grant file access to an admin"), 400
+
+        db.execute(
+            "INSERT INTO grants (document_id, user_id, permission, granted_by) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(document_id, user_id) DO UPDATE SET "
+            "permission = excluded.permission, granted_by = excluded.granted_by, "
+            "granted_at = CURRENT_TIMESTAMP",
+            (doc_id, target["id"], permission, g.user["id"]),
+        )
+        db.commit()
+        log_event(db, g.user["id"], "grant", doc_id, "allowed", username + ":" + permission)
+        return jsonify(status="granted", username=username, permission=permission), 201
+    finally:
+        db.close()
+
+
+@app.get("/documents/<int:doc_id>/grants")
+@login_required
+def list_grants(doc_id):
+    db = get_db()
+    try:
+        doc = db.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if not authorize(g.user, doc, "share", db):
+            return jsonify(error="not found"), 404
+        rows = db.execute(
+            "SELECT u.username, gr.permission, gr.granted_at "
+            "FROM grants gr JOIN users u ON u.id = gr.user_id "
+            "WHERE gr.document_id = ? ORDER BY u.username",
+            (doc_id,),
+        ).fetchall()
+        return jsonify([dict(r) for r in rows])
+    finally:
+        db.close()
+
+
+@app.delete("/documents/<int:doc_id>/grants/<username>")
+@login_required
+def revoke_access(doc_id, username):
+    db = get_db()
+    try:
+        doc = db.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if not authorize(g.user, doc, "share", db):
+            log_event(db, g.user["id"], "revoke", doc_id, "denied", "not authorised or not found")
+            return jsonify(error="not found"), 404
+
+        cur = db.execute(
+            "DELETE FROM grants WHERE document_id = ? AND user_id = "
+            "(SELECT id FROM users WHERE username = ?)",
+            (doc_id, username),
+        )
+        db.commit()
+        if cur.rowcount == 0:
+            return jsonify(error="no such grant"), 404
+        log_event(db, g.user["id"], "revoke", doc_id, "allowed", username)
+        return jsonify(status="revoked", username=username)
+    finally:
+        db.close()
+
+
+@app.delete("/documents/<int:doc_id>")
+@login_required
+def delete_document(doc_id):
+    db = get_db()
+    try:
+        doc = db.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        if not authorize(g.user, doc, "delete", db):
+            log_event(db, g.user["id"], "delete", doc_id, "denied", "not authorised or not found")
+            return jsonify(error="not found"), 404
+
+        db.execute(
+            "UPDATE documents SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?", (doc_id,)
+        )
+        db.commit()
+        log_event(db, g.user["id"], "delete", doc_id, "allowed", doc["name"])
+        return jsonify(status="deleted")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     app.run(port=5000)
