@@ -56,9 +56,13 @@ python app.py
 
 Tests: `pytest -v` (40 tests).
 
+## Web UI
+
+A basic web UI is available for login and the supported document-management features. The UI uses simple styling and browser pop-ups for some actions.
+
 ## Not built
 
-No web UI (API only), no versions or recovery, no external sharing, no AI suggestions, no file editing endpoint, no login rate limiting, no password change.
+No document content editing endpoint, document versions or recovery, external sharing, AI suggestions, login rate limiting, or password change.
 
 ## Unfinished / honest notes
 
