@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory, session, g
 from werkzeug.security import check_password_hash
 
-from audit import log_event
+from audit import log_event, verify_chain
 from db import get_db
 from permissions import authorize
 
@@ -14,6 +14,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("RENDER") is not None
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB
 
 STORAGE = Path(os.environ.get("TRUSTVAULT_STORAGE", Path(__file__).parent / "storage"))
@@ -34,6 +35,15 @@ def clean_name(raw):
     return name[:100]
 
 
+def access_level(user, doc, db):
+    """Ask authorize(): what is the highest thing this user can do here?"""
+    for action, label in (("share", "owner"), ("edit", "edit"),
+                          ("download", "read"), ("view_meta", "metadata only")):
+        if authorize(user, doc, action, db):
+            return label
+    return "none"
+
+
 @app.errorhandler(413)
 def too_large(e):
     return jsonify(error="file too large (max 5 MB)"), 413
@@ -51,6 +61,13 @@ def load_user():
         db.close()
 
 
+@app.after_request
+def security_headers(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 def login_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
@@ -58,6 +75,11 @@ def login_required(view):
             return jsonify(error="login required"), 401
         return view(*args, **kwargs)
     return wrapper
+
+
+@app.get("/")
+def index():
+    return send_from_directory(Path(__file__).parent / "static", "index.html")
 
 
 @app.get("/health")
@@ -190,6 +212,41 @@ def list_documents():
         db.close()
 
 
+@app.get("/search")
+@login_required
+def search_documents():
+    db = get_db()
+    try:
+        q = request.args.get("q", "")
+        owner = request.args.get("owner", "")
+        category = request.args.get("category", "")
+        date_from = request.args.get("from", "")
+        date_to = request.args.get("to", "")
+        sql = (
+            "SELECT d.id, d.owner_id, d.name, d.category, d.size_bytes, d.deleted_at, "
+            "d.created_at, u.username AS owner FROM documents d "
+            "JOIN users u ON u.id = d.owner_id "
+            "WHERE d.name LIKE ? AND u.username LIKE ? AND IFNULL(d.category, '') LIKE ?"
+        )
+        params = ["%" + q + "%", "%" + owner + "%", "%" + category + "%"]
+        if date_from:
+            sql += " AND date(d.created_at) >= date(?)"
+            params.append(date_from)
+        if date_to:
+            sql += " AND date(d.created_at) <= date(?)"
+            params.append(date_to)
+        rows = db.execute(sql + " ORDER BY d.id DESC", params).fetchall()
+        return jsonify([
+            {"id": r["id"], "name": r["name"], "category": r["category"],
+             "owner": r["owner"], "size_bytes": r["size_bytes"],
+             "created_at": r["created_at"],
+             "access": access_level(g.user, r, db)}
+            for r in rows if authorize(g.user, r, "view_meta", db)
+        ])
+    finally:
+        db.close()
+
+
 @app.post("/documents/<int:doc_id>/grants")
 @login_required
 def grant_access(doc_id):
@@ -290,56 +347,6 @@ def delete_document(doc_id):
         db.commit()
         log_event(db, g.user["id"], "delete", doc_id, "allowed", doc["name"])
         return jsonify(status="deleted")
-    finally:
-        db.close()
-
-
-from audit import verify_chain
-
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("RENDER") is not None
-
-
-@app.after_request
-def security_headers(resp):
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.get("/")
-def index():
-    return jsonify(app="TrustVault API", health="/health", login="POST /login")
-
-
-@app.get("/search")
-@login_required
-def search_documents():
-    db = get_db()
-    try:
-        q = request.args.get("q", "")
-        owner = request.args.get("owner", "")
-        category = request.args.get("category", "")
-        date_from = request.args.get("from", "")
-        date_to = request.args.get("to", "")
-        sql = (
-            "SELECT d.id, d.owner_id, d.name, d.category, d.size_bytes, d.deleted_at, "
-            "d.created_at, u.username AS owner FROM documents d "
-            "JOIN users u ON u.id = d.owner_id "
-            "WHERE d.name LIKE ? AND u.username LIKE ? AND IFNULL(d.category, '') LIKE ?"
-        )
-        params = ["%" + q + "%", "%" + owner + "%", "%" + category + "%"]
-        if date_from:
-            sql += " AND date(d.created_at) >= date(?)"
-            params.append(date_from)
-        if date_to:
-            sql += " AND date(d.created_at) <= date(?)"
-            params.append(date_to)
-        rows = db.execute(sql + " ORDER BY d.id DESC", params).fetchall()
-        return jsonify([
-            {"id": r["id"], "name": r["name"], "category": r["category"],
-             "owner": r["owner"], "size_bytes": r["size_bytes"], "created_at": r["created_at"]}
-            for r in rows if authorize(g.user, r, "view_meta", db)
-        ])
     finally:
         db.close()
 

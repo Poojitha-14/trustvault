@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TrustVault</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>TrustVault</h1>
+  <p id="msg"></p>
+
+  <section id="login">
+    <h2>Login</h2>
+    <input id="u" placeholder="username">
+    <input id="p" type="password" placeholder="password">
+    <button onclick="login()">Login</button>
+    <p class="small">Demo users are listed in the README.</p>
+  </section>
+
+  <section id="app" hidden>
+    <p>Logged in as <b id="who"></b> <button onclick="logout()">Logout</button></p>
+    <div id="roleInfo" class="card"></div>
+
+    <div id="uploadBox">
+      <h2>Upload</h2>
+      <input type="file" id="f">
+      <input id="cat" placeholder="category">
+      <button onclick="upload()">Upload</button>
+    </div>
+
+    <h2>Documents</h2>
+    <input id="q" placeholder="search by name">
+    <button onclick="load()">Search</button>
+    <table id="docs"></table>
+
+    <div id="adminBox" hidden>
+      <h2>Activity (admin only)</h2>
+      <button onclick="audit()">Show audit log</button>
+      <pre id="auditOut"></pre>
+    </div>
+  </section>
+
+  <h2>Permission model</h2>
+  <table class="model">
+    <tr><th>Who</th><th>What they can do</th></tr>
+    <tr><td>Owner</td><td>Read, download, edit, delete, share (own documents)</td></tr>
+    <tr><td>Grant: read</td><td>Read, download</td></tr>
+    <tr><td>Grant: edit</td><td>Read, download, edit</td></tr>
+    <tr><td>Admin</td><td>See metadata and activity only. Cannot open file contents</td></tr>
+    <tr><td>Everyone else</td><td>Denied</td></tr>
+  </table>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+input, button { padding: 6px 10px; margin: 2px; }
+button { cursor: pointer; }
+table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+th, td { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; }
+pre { background: #f4f4f4; padding: 8px; overflow: auto; max-height: 300px; }
+.card { background: #eef4ff; border-left: 4px solid #3b6fd4; padding: 10px; margin: 10px 0; }
+.small { color: #666; font-size: 0.85rem; }
+#msg { color: #b00020; min-height: 1.2em; }
+.badge { padding: 2px 8px; border-radius: 10px; font-size: 0.85rem; background: #ddd; }
+.badge.owner { background: #c8f2d0; }
+.badge.edit { background: #ffe9a8; }
+.badge.read { background: #d6e6ff; }
+.badge.metadata { background: #e6d6ff; }
